@@ -1,2 +1,0 @@
-frontend:build:cd /Users/jhca/workspace/qwarty/frontend && pnpm build
-frontend:tsc:cd /Users/jhca/workspace/qwarty/frontend && npx tsc --noEmit

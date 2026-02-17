@@ -1,2 +1,0 @@
-frontend:build:cd /Users/chajinhyeog/workspace/vrl/frontend && pnpm build
-frontend:tsc:cd /Users/chajinhyeog/workspace/vrl/frontend && npx tsc --noEmit

@@ -21,16 +21,13 @@ def generate_document_id() -> str:
 def generate_photo_id() -> str:
     return f"pho_{ULID()}"  # pho_01HQ5K3NXYZ...
 
-# Entity Prefixes:
+# 현재 엔티티 Prefix:
 # usr_ - User
 # doc_ - UserDocument
 # pho_ - UserPhoto
 # sub_ - UserSubscription
 # aud_ - UserAccessAudit
-# mw_  - MatchWeek
-# mh_  - MatchHistory
-# mf_  - MatchFeedback
-# cs_  - ConsultSchedule
+# 새 도메인 추가 시: 적절한 2-3자 prefix 선택
 ```
 
 ### User Model (SQLModel)
@@ -56,7 +53,7 @@ class User(SQLModel, table=True):
     is_admin: bool = Field(default=False)
 
     # Soft delete
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None  # Soft delete marker
 
@@ -100,7 +97,7 @@ class UserPhoto(SQLModel, table=True):
     s3_key: str  # S3 key only, never URL
     thumbnail_s3_key: Optional[str] = None
     display_order: int = Field(default=0)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc))
     deleted_at: Optional[datetime] = None
 
     user: Optional[User] = Relationship(back_populates="photos")
@@ -323,7 +320,7 @@ user = result.scalar_one_or_none()
 
 if user:
     user.name = "김영희"
-    user.updated_at = datetime.utcnow()
+    user.updated_at = datetime.now(tz=timezone.utc)
     session.add(user)
     await session.commit()
     await session.refresh(user)
@@ -338,7 +335,7 @@ result = await session.execute(stmt)
 user = result.scalar_one_or_none()
 
 if user:
-    user.deleted_at = datetime.utcnow()
+    user.deleted_at = datetime.now(tz=timezone.utc)
     session.add(user)
     await session.commit()
 ```

@@ -241,7 +241,6 @@ from backend.domain.user.repository import UserRepository, UserDataLoader
 from backend.domain.user.model import User, UserProfile
 from backend.dtos.user import UserCreateDto, UserResponseDto, MemberDetailResponse
 from backend.error import NotFoundError, ConflictError
-from backend.utils.s3 import generate_presigned_url
 
 
 class UserService:
@@ -286,18 +285,7 @@ class UserService:
         if not user_with_relations:
             raise NotFoundError(f"User {user_id} not found")
 
-        # Generate presigned URLs for photos
-        photo_urls = []
-        if user_with_relations.photos:
-            photo_urls = await asyncio.gather(*[
-                generate_presigned_url(photo.s3_key)
-                for photo in user_with_relations.photos
-            ])
-
-        return MemberDetailResponse.from_user_with_relations(
-            user_with_relations,
-            photo_urls=photo_urls,
-        )
+        return MemberDetailResponse.from_user_with_relations(user_with_relations)
 
     async def update_user(self, user_id: str, dto: UserUpdateDto) -> UserResponseDto:
         """Update user"""
@@ -523,16 +511,14 @@ app = create_application()
 - ✅ Layered architecture (Router → Service → Repository)
 - ✅ Domain-Driven Design structure
 - ✅ ULID ID generation with entity prefixes
-- ✅ SQLModel models with relationships
 - ✅ Repository pattern with BaseRepository
-- ✅ UserDataLoader for N+1 prevention
+- ✅ UserDataLoader for N+1 prevention (asyncio.gather)
 - ✅ Service layer with business logic
 - ✅ Pydantic DTOs with field_validator
 - ✅ FastAPI routers with dependency injection
 - ✅ Read/Write session split
-- ✅ Soft delete pattern
+- ✅ Soft delete pattern (deleted_at)
 - ✅ Async/await with asyncio.gather
 - ✅ Error handling with custom exceptions
-- ✅ S3 presigned URLs for photos
 - ✅ Pagination support
 - ✅ Type hints everywhere

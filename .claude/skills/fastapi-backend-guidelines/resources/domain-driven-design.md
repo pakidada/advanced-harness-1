@@ -13,36 +13,52 @@ backend/domain/{domain}/
   enums.py         # Domain-specific enums (if needed)
 ```
 
-## 현재 도메인 (Existing Domains)
+## YGS Domains
+
+Current domains in the YGS project:
 
 | Domain | Description | Key Models |
 |--------|-------------|------------|
-| **user** | 사용자 전체 관리 + 인증 | User, UserProfile, UserLifestyle, UserPreference, UserDocument, UserPhoto, UserSubscription, UserAccessAudit |
-| **shared** | 공유 유틸리티 | BaseRepository, query_helpers, raw_query_repository |
+| **user** | User management | User, UserProfile, UserLifestyle, UserPreference, UserDocument, UserPhoto, UserSubscription, UserAccessAudit |
+| **auth** | Authentication | JWT tokens, Firebase social auth, Kakao OAuth |
+| **admin** | Admin dashboard | ConsultSchedule, statistics, member management |
+| **match** | Matching system | MatchWeek, MatchHistory, MatchFeedback |
+| **llm** | LLM integration | Gemini-enhanced compatibility analysis |
+| **shared** | Shared utilities | BaseRepository, common helpers |
 
 ## Domain Structure Example
 
-### User Domain (현재 구조)
+### User Domain
 
 ```
 backend/domain/user/
   __init__.py
   model.py         # User, UserProfile, UserLifestyle, UserPreference,
                    # UserDocument, UserPhoto, UserSubscription, UserAccessAudit
-  repository.py    # UserRepository, UserDataLoader, UserAccessAuditRepository
-  service.py       # UserService (CRUD, list, audit)
-  auth_service.py  # AuthService (이메일 로그인/회원가입/토큰 갱신) + get_user_id 의존성
-  enums.py         # GenderEnum, UserStatusEnum, AuthTypeEnum, EducationEnum, etc.
+  repository.py    # UserRepository, UserDataLoader
+  service.py       # UserService
+  enums.py         # GenderEnum, UserStatusEnum, EducationEnum, etc.
 ```
 
-### Shared Domain (현재 구조)
+### Match Domain
 
 ```
-backend/domain/shared/
+backend/domain/match/
   __init__.py
-  base_repository.py      # Generic BaseRepository[T] with CRUD + batch ops
-  query_helpers.py        # Common query utility functions
-  raw_query_repository.py # Raw SQL query support
+  model.py         # MatchWeek, MatchHistory, MatchFeedback
+  repository.py    # MatchWeekRepository, MatchHistoryRepository
+  service.py       # MatchService
+```
+
+### Admin Domain
+
+```
+backend/domain/admin/
+  __init__.py
+  model.py         # ConsultSchedule
+  repository.py    # ConsultScheduleRepository
+  service.py       # AdminService
+  matching_service.py  # Compatibility scoring
 ```
 
 ## Creating a New Domain
@@ -153,26 +169,25 @@ app.include_router(newdomain_router)
 
 ## Cross-Domain Communication
 
-새 도메인이 user 데이터를 필요로 할 때, UserRepository를 직접 사용:
+When one service needs data from another domain:
 
 ```python
-# backend/domain/newfeature/service.py
-class NewFeatureService:
+# backend/domain/match/service.py
+class MatchService:
     def __init__(self, session: AsyncSession):
         self.session = session
-        self._repository = NewFeatureRepository(session)
-        self._user_repository = UserRepository(session)  # user 도메인에서 가져옴
+        self._match_repository = MatchHistoryRepository(session)
+        self._user_repository = UserRepository(session)  # From user domain
 
-    async def create_feature_for_user(self, user_id: str, dto: NewFeatureCreateDto) -> NewFeatureResponse:
-        # user 존재 확인 (cross-domain check)
-        user = await self._user_repository.get_async(user_id)
+    async def create_match(self, dto: MatchCreateDto) -> MatchResponse:
+        # Validate user exists (cross-domain check)
+        user = await self._user_repository.get_by_id(dto.user_id)
         if not user:
             raise NotFoundError("User not found")
 
-        # 현재 도메인에 데이터 생성
-        feature = NewFeature(user_id=user_id, **dto.model_dump())
-        created = await self._repository.create_async(**feature.model_dump())
-        return NewFeatureResponse.model_validate(created)
+        # Create match in this domain
+        match = MatchHistory(**dto.model_dump())
+        return await self._match_repository.create(match)
 ```
 
 ## Shared Domain

@@ -278,8 +278,6 @@ def register_exception_handlers(app: FastAPI) -> None:
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from backend.middleware.error_handler import register_exception_handlers
-from backend.api.v1.routers.auth import router as auth_router
-from backend.api.v1.routers.user import router as user_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -289,7 +287,7 @@ async def lifespan(app: FastAPI):
 
 def create_application() -> FastAPI:
     app = FastAPI(
-        title="API",
+        title="YGS API",
         lifespan=lifespan,
     )
 
@@ -297,8 +295,10 @@ def create_application() -> FastAPI:
     register_exception_handlers(app)
 
     # Register routers
-    app.include_router(auth_router, prefix="/api/v1")
-    app.include_router(user_router, prefix="/api/v1")
+    app.include_router(auth_router)
+    app.include_router(user_router)
+    app.include_router(admin_router)
+    app.include_router(match_router)
 
     return app
 

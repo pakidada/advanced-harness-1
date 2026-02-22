@@ -57,7 +57,7 @@ Creating a new domain? Set up this structure:
 
 ## Project Structure Quick Reference
 
-현재 프로젝트 백엔드 구조:
+Your YGS backend structure:
 
 ```
 backend/
@@ -67,26 +67,41 @@ backend/
     api/
       v1/
         routers/             # API route handlers
-          auth.py            # Login, signup, token refresh
-          user.py            # User CRUD management
+          admin.py           # Dashboard, members, matching
+          auth.py            # Login, signup, OAuth
+          match.py           # Match weeks, history
+          user.py            # User management
+          upload.py          # S3 presigned URLs
 
     domain/                  # Domain-Driven Design
       user/
-        model.py             # User, UserProfile, UserLifestyle,
-                             # UserPreference, UserDocument, UserPhoto,
-                             # UserSubscription, UserAccessAudit
-        repository.py        # UserRepository, UserDataLoader, UserAccessAuditRepository
+        model.py             # User, UserProfile, UserLifestyle, etc.
+        repository.py        # UserRepository, UserDataLoader
         service.py           # UserService
-        auth_service.py      # AuthService (JWT email login/signup)
         enums.py             # All domain enums
+      auth/
+        service.py           # AuthService (JWT, Firebase, Kakao)
+        repository.py        # AuthRepository
+      admin/
+        model.py             # ConsultSchedule
+        service.py           # AdminService
+        repository.py        # AdminRepository
+        matching_service.py  # MatchingService (scoring algorithm)
+      match/
+        model.py             # MatchWeek, MatchHistory, MatchFeedback
+        service.py           # MatchService
+        repository.py        # MatchRepository
+      llm/
+        matching_service.py  # LLM-enhanced matching
       shared/
-        base_repository.py      # Generic BaseRepository[T]
-        query_helpers.py        # Shared query utilities
-        raw_query_repository.py # Raw SQL query support
+        base_repository.py   # Generic BaseRepository
 
     dtos/                    # Pydantic DTOs
-      auth.py                # Login, signup, token DTOs
+      admin.py               # Dashboard, member DTOs
+      auth.py                # Login, signup, OAuth DTOs
+      match.py               # Match week, history DTOs
       user.py                # User, profile DTOs
+      llm_match.py           # LLM matching DTOs
 
     db/
       orm.py                 # Read/Write session management
@@ -95,21 +110,18 @@ backend/
       config.py              # Pydantic Settings configuration
 
     middleware/              # Middleware
-      error_handler.py       # Exception handlers (register_exception_handlers)
+      error_handler.py       # ErrorHandlerMiddleware
+      admin_auth.py          # Admin authentication
 
     utils/                   # Utilities
-      logger.py              # Logging setup
+      s3.py                  # S3 presigned URLs
+      s3_private.py          # Private user data S3
+      firebase.py            # Firebase verification
       password.py            # bcrypt hashing
+      excel.py               # Excel export
 
     error/                   # Custom exceptions
       __init__.py            # AppException, NotFoundError, etc.
-
-    scripts/
-      verify_trigram_support.py  # DB trigram extension check
-
-  scripts/                   # DB management scripts
-    init_test_db.py
-    reset_test_db.py
 ```
 
 ---
@@ -119,13 +131,13 @@ backend/
 ```python
 # FastAPI
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import StreamingResponse
 
 # SQLModel & SQLAlchemy
-from sqlmodel import select, or_, and_, col, func
+from sqlmodel import select, or_, and_, col
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlalchemy import desc
+from sqlalchemy import func, desc
+from sqlalchemy.orm import selectinload
 
 # Database
 from backend.db.orm import get_write_session_dependency, get_read_session_dependency
@@ -134,11 +146,9 @@ from backend.db.orm import get_write_session_dependency, get_read_session_depend
 from pydantic import BaseModel, Field, field_validator, EmailStr
 
 # Your domain
-from backend.domain.user.model import User, UserProfile, UserSubscription
+from backend.domain.user.model import User, UserProfile
 from backend.domain.user.service import UserService
-from backend.domain.user.auth_service import AuthService, get_user_id
 from backend.dtos.user import UserResponse, UserCreateRequest
-from backend.dtos.auth import EmailLoginRequestDto, LoginResponseDto
 from backend.error import NotFoundError, ForbiddenError, UnauthorizedError
 
 # Type hints
@@ -146,10 +156,6 @@ from typing import List, Optional, Dict, Any
 
 # ID generation
 from ulid import ULID
-
-# Utils
-from backend.utils.password import hash_password, verify_password
-from backend.utils.logger import logger
 ```
 
 ---
@@ -276,9 +282,13 @@ class User(SQLModel, table=True):
 - Business logic in services
 - Data access in repositories
 
-**현재 도메인:**
-- **user**: 사용자 관리 (User, UserProfile, UserLifestyle, UserPreference, UserDocument, UserPhoto, UserSubscription, UserAccessAudit) + AuthService (이메일 로그인/회원가입)
-- **shared**: BaseRepository, query helpers, raw query utilities
+**Your Domains:**
+- **user**: User management (User, UserProfile, UserLifestyle, UserPreference, etc.)
+- **auth**: Authentication (JWT, Firebase, Kakao OAuth)
+- **admin**: Admin dashboard, member management, consultations
+- **match**: Match weeks, history, feedback
+- **llm**: LLM-enhanced matching with Gemini
+- **shared**: BaseRepository, common utilities
 
 **[📖 Complete Guide: resources/domain-driven-design.md](resources/domain-driven-design.md)**
 
@@ -529,7 +539,7 @@ if not user:
 8. **Error Handling**: Custom exceptions, middleware for HTTP mapping
 9. **Read/Write Split**: Separate sessions for read and write operations
 10. **Dependency Injection**: Use FastAPI's Depends() for sessions
-11. **ULID IDs**: Use ULID with entity prefixes (usr_, doc_, pho_, sub_, aud_)
+11. **ULID IDs**: Use ULID with entity prefixes (usr_, mw_, mh_, etc.)
 12. **Soft Delete**: Use deleted_at timestamp instead of hard deletes
 13. **N+1 Prevention**: Use asyncio.gather and DataLoader patterns
 

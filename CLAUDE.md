@@ -2,307 +2,153 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Monorepo Structure
+## Overview
 
-This is a **monorepo** containing both backend (FastAPI) and frontend (Next.js) applications:
+This is a **harness/scaffold monorepo** (codename: yeongyeolsa/영영사) with a FastAPI backend and Next.js 15 frontend. It is a stripped-down template — only `user` and `auth` domains are implemented. Other domains mentioned in README (artist, artwork, curai, etc.) do not exist here.
 
-- `backend/` - Python FastAPI backend with PostgreSQL
-- `frontend/` - Next.js 15 frontend with TypeScript and Tailwind CSS
+## Quick Reference
 
-## Backend Development
-
-### Prerequisites
-
-- Python 3.12.3 (exact version, see `backend/pyproject.toml`)
-- Docker & Docker Compose
-
-### Setup
+### Backend Commands
 
 ```bash
 cd backend
-uv venv
-source .venv/bin/activate
-uv pip install -e .
-uv pip install -e .[dev]  # Install dev dependencies (black, isort, mypy, ruff)
-```
+uv venv && source .venv/bin/activate
+uv pip install -e .                    # Production deps
+uv pip install -e .[dev]               # + black, isort, mypy, ruff, pytest, alembic
 
-### Running the Backend
-
-```bash
-# Development server (note: module is backend.main not app.main)
-cd backend
+# Run dev server (module path is backend.main, NOT app.main)
 uvicorn backend.main:app --reload --port 28080
 
-# Docker Compose (production-like environment)
-cd backend
-docker-compose up
+# Code quality
+black .
+isort . --profile black
+ruff check --fix .
+mypy .
+pre-commit run --all-files
+
+# Tests (requires test-db running)
+docker-compose up -d                   # Starts pgvector on port 5433
+python scripts/init_test_db.py --seed  # Init + seed test data
+pytest                                 # Runs with --cov-fail-under=80
+pytest tests/path/to/test.py -k "test_name"  # Single test
+
+# Database
+alembic upgrade head                   # Run migrations
+alembic revision --autogenerate -m "description"  # Create migration
 ```
 
-### Code Quality
-
-```bash
-cd backend
-black .                           # Format code
-isort . --profile black          # Sort imports
-ruff check --fix .               # Lint with auto-fix
-mypy .                           # Type checking
-pre-commit run --all-files       # Run all pre-commit hooks
-```
-
-### Backend Architecture
-
-**Framework:** FastAPI with async/await pattern using SQLModel + SQLAlchemy
-
-**Database Layer:**
-
-- **Read/Write Separation**: Separate database connections for read and write operations
-- Event loop-based caching of engines and sessionmakers in `backend/db/orm.py`
-- Session factories:
-  - `get_write_session()` / `get_write_session_dependency()` for write operations
-  - `get_read_session()` / `get_read_session_dependency()` for read operations
-- PostgreSQL with asyncpg driver, SSL required for connections
-
-**Domain-Driven Design:**
-
-- Business logic organized in `backend/domain/{entity}/` directories
-- Each domain contains: `model.py` (SQLModel), `service.py` (business logic), `repository.py` (data access)
-- Domains: `user`, `auth`, `artist`, `artwork`, `admin`, `curai`, `exhibition`, `message`, `notification`, `subscription`, `shared`
-
-**API Structure:**
-
-- Versioned endpoints under `/api/v1/` prefix
-- Routers in `backend/api/v1/routers/`: `auth.py`, `artist.py`, `artwork.py`, `admin.py`, `curai.py`, `exhibition.py`, `message.py`, `notification.py`, `health.py`
-- DTOs in `backend/dtos/` for request/response validation
-- Main app creation in `backend/main.py` via `create_application()`
-
-**Configuration:**
-
-- Settings in `backend/core/config.py` using Pydantic BaseSettings
-- Environment variables required: database credentials (read/write), JWT config
-- CORS configured for local development and production domains (qwarty.net)
-
-**Deployment:**
-
-- Docker image: `206404754787.dkr.ecr.ap-northeast-2.amazonaws.com/qwarty-backend:latest`
-- Deployed to AWS ECS cluster `qwarty-backend-cluster`
-- Auto-deployment on push to `main` branch via GitHub Actions
-
-## Frontend Development
-
-### Prerequisites
-
-- Node.js 20+
-- pnpm package manager
-
-### Setup
+### Frontend Commands
 
 ```bash
 cd frontend
 pnpm install
+pnpm dev          # Dev server with Turbopack (http://localhost:3000)
+pnpm build        # Production build
+pnpm lint         # ESLint
 ```
 
-### Running the Frontend
+## Backend Architecture
 
-```bash
-cd frontend
-pnpm dev          # Development server with Turbopack (http://localhost:3000)
-pnpm build        # Production build with Turbopack
-pnpm start        # Start production server
-pnpm lint         # Run ESLint
-```
+**Stack:** FastAPI + SQLModel/SQLAlchemy + asyncpg + PostgreSQL (with pgvector)
 
-### Frontend Architecture
+### Database Layer (`backend/db/orm.py`)
 
-**Framework:** Next.js 15 (App Router) with React 19, TypeScript, Tailwind CSS 4
+Read/write connection separation with event-loop-scoped engine caching:
+- `get_write_session()` / `get_read_session()` — async context managers for service-layer use
+- `get_write_session_dependency()` / `get_read_session_dependency()` — FastAPI `Depends()` generators for routers
+- Pool: `pool_size=15`, `max_overflow=25`. SSL required in non-dev environments.
+- Test DB runs on port **5433** (not 5432) via docker-compose.
 
-**Project Structure:**
+### Domain-Driven Design (`backend/domain/`)
 
-- `src/app/` - Next.js App Router pages and API routes
-  - Route groups: `/login`, `/sign-up`, `/artists`, `/artist`, `/account`, `/admin`, `/agent`, `/explore`, `/messages`, `/search`
-  - API routes: `/api/upload` (S3 file upload)
-- `src/components/` - Reusable React components organized by feature
-- `src/lib/` - Core utilities and configurations
-  - `api.ts` - API client for backend communication
-  - `serverAuth.ts` - Server-side authentication utilities
-  - `s3Upload.ts` - AWS S3 upload utilities with compression
-  - `emailAuth.ts` - Email authentication utilities
-  - `firebase.ts` - Firebase configuration
-  - `theme.ts` - MUI theme configuration
-- `src/hooks/` - Custom React hooks
-- `src/providers/` - React context providers
-- `src/utils/` - Utility functions
-- `src/types/` - TypeScript type definitions
-- `src/const/` - Application constants
-- `src/interfaces/` - TypeScript interfaces
-- `src/locales/` - Internationalization (i18n) with next-intl
+Each domain follows: `model.py` → `repository.py` → `service.py`
 
-**Key Technologies:**
+Currently implemented:
+- **`user/`** — User, UserProfile, UserLifestyle, UserPreference, UserDocument, UserPhoto, UserSubscription, UserAccessAudit
+- **`user/auth_service.py`** — Email/password auth (bcrypt), JWT access (12h) + refresh (30d) tokens
+- **`shared/`** — `BaseRepository[ModelType]` with generic CRUD, `QueryFilterBuilder`, `LocaleFieldSelector`
 
-- **Styling:** Tailwind CSS 4, MUI Material (components), Emotion (CSS-in-JS)
-- **State Management:** React hooks and context providers
-- **Authentication:** JWT tokens with server-side validation
-- **File Upload:** AWS S3 with client-side compression
-- **Internationalization:** next-intl for i18n support
-- **UI Components:** MUI Material, Lucide React icons
+Key design decisions:
+- **No FK constraints at DB level** — referential integrity enforced at application layer only
+- **ULID-based string IDs** with type prefixes: `usr_`, `doc_`, `pho_`, `sub_`, `aud_`
+- **Soft delete** via `deleted_at` on User, UserDocument, UserPhoto
+- **Bcrypt hash stored in `auth_provider_id` field** — this field serves triple duty (OAuth provider ID for social login, bcrypt hash for email login, or None)
+- **All enums stored as Text** (not native PG enum), with `from_korean()` / `to_korean()` methods for locale mapping
+- **`UserDataLoader`** fetches user relations (profile, lifestyle, preference, subscription) in parallel via `asyncio.gather()`
 
-**Configuration:**
+### API Routes (`backend/api/v1/routers/`)
 
-- `next.config.ts` - Next.js config with remote image patterns (AWS S3), Turbopack enabled
-- `tailwind.config.ts` - Tailwind CSS 4 configuration
-- `eslint.config.mjs` - ESLint configuration with TypeScript support
-- Environment variables required: API endpoint, Firebase config, AWS credentials, Kakao OAuth
+Only two routers exist:
+- **`auth.py`** — `POST /email/sign-up`, `POST /email/login`, `POST /refresh`, `GET /me`
+- **`user.py`** — CRUD at `/users` (list, get, create, update, soft-delete)
 
-## Development Workflow
+Prefix: `/api/v1`. Health check: `GET /api/v1/health`.
 
-### Environment Files
+### Error Handling (`backend/error/`, `backend/middleware/error_handler.py`)
 
-Backend and frontend both require `.env` files:
+Custom exception hierarchy: `AppException` → `NotFoundError`, `ForbiddenError`, `UnauthorizedError`, `ValidationError`, `ConflictError`, `UserNotFoundSignupRequiredError` (returns HTTP **452**, non-standard).
 
-- `backend/.env` - Database credentials (read/write), JWT config
-- `frontend/.env` - API endpoint, Firebase, AWS S3, Kakao OAuth credentials
+### Mock Auth (`backend/core/config.py`)
 
-### Git Workflow
+Setting `MOCK_AUTH_ENABLED=true` bypasses all JWT validation — every request is treated as `mock-user-001`. Blocked in production (enforced at startup). Useful for frontend development without real auth.
 
-- Main branch: `main` (protected, auto-deploys backend to AWS ECS)
-- Create feature branches for development
-- Backend deployment triggers automatically on push to `main` via `.github/workflows/deploy-real.yaml`
-  - Builds Docker image and pushes to ECR: `206404754787.dkr.ecr.ap-northeast-2.amazonaws.com/qwarty-backend:latest`
-  - Deploys to ECS service: `prod-apne2-qwarty-backend-svc` in cluster `qwarty-backend-cluster`
-  - Task definition: `backend/prod-apne2-qwarty-backend-task-def.json`
+### Known Issues
 
-### Key Design Patterns
+- `UserService.list_users` accepts `query`, `status`, `gender` params but silently ignores them — `list_async` only applies `skip`/`limit`
+- `refresh_token` table referenced in `scripts/reset_test_db.py` but no SQLModel model exists
+- No `alembic/` migrations directory committed yet — needs `alembic init alembic`
+- No `tests/` directory exists yet — pytest is configured but tests need to be written
 
-**Backend:**
+## Frontend Architecture
 
-- Domain-Driven Design with clear separation of concerns
-- Repository pattern for data access
-- DTO pattern for API contracts
-- Dependency injection via FastAPI's `Depends()`
-- Async/await throughout with proper session management
+**Stack:** Next.js 15 (App Router) + React 19 + TypeScript + Tailwind CSS 4
 
-**Frontend:**
+### Route Structure
 
-- Server-side rendering (SSR) with App Router
-- Client/Server component separation
-- Server actions for API calls
-- Image optimization with S3 upload
-- Responsive design with Tailwind CSSs
+Minimal scaffold: home page (`/`) + login page (`/login`). The `middleware.ts` has `PROTECTED_PATHS = []` (nothing protected yet).
 
-### Important Notes
+### Auth Flow (`src/lib/api.ts`, `src/providers/AuthProvider.tsx`)
 
-- **Backend module path:** Use `backend.main:app` not `app.main:app` when running uvicorn
-- **Database sessions:** Always use appropriate read/write session factory from `backend/db/orm.py`
-  - Use `get_write_session_dependency()` for FastAPI endpoints that modify data
-  - Use `get_read_session_dependency()` for FastAPI endpoints that only read data
-- **Frontend API calls:** Centralized in `src/lib/api.ts`
-- **Image uploads:** S3 upload uses presigned POST URLs for direct client-side upload
-  - Flow: Client → Backend (`POST /api/v1/upload/presigned-url`) → Backend generates presigned POST → Client uploads directly to S3
-  - Backend: `backend/utils/s3.py` - `generate_presigned_post()` creates presigned POST with fields and conditions (max 50MB)
-  - Frontend: `src/lib/s3Upload.ts` - Handles compression (browser-image-compression), presigned URL request, and S3 upload
-  - Images are compressed client-side to WebP format before upload (optional, depending on function used)
-  - Supports thumbnail generation: uploads both original and compressed thumbnail in parallel
-- **Authentication:** JWT-based, server-side validation in `src/lib/serverAuth.ts`
-- **Pre-commit hooks:** Backend uses black, isort, ruff, and other checks via `.pre-commit-config.yaml`
+**Dual token storage:**
+- `localStorage` — for client-side auth checks
+- HTTP-only cookies — set via internal Next.js route `/api/auth/session` (POST sets, DELETE clears, GET reads)
 
-## Testing & Performance Monitoring
+The `apiRequest<T>()` function auto-retries with token refresh on 401. Cross-tab sync via `storage` event listener.
 
-### Browser Testing with Chrome DevTools MCP
+### Key Files
 
-**IMPORTANT:** Always use **chrome-devtools MCP** for frontend browser testing and performance measurement. Do NOT manually start the dev server with `pnpm dev` for testing.
+- `src/lib/api.ts` — API client, all backend calls go through here. Base URL switches on `NEXT_PUBLIC_ENV`
+- `src/providers/AuthProvider.tsx` — Auth context: `user`, `isAuthenticated`, `emailLogin`, `emailSignUp`, `logout`, `refreshUser`
+- `src/app/api/auth/session/route.ts` — Cookie management (access 12h, refresh 30d, `httpOnly`, `secure` in prod)
+- `next.config.ts` — Remote images from `lh3.googleusercontent.com` and `prod-apne2-ygs.s3.amazonaws.com`
 
-**Available MCP Tools:**
+### Path Alias
 
-- `mcp__chrome-devtools__navigate_page` - Navigate to URL
-- `mcp__chrome-devtools__take_snapshot` - Take page snapshot (structure)
-- `mcp__chrome-devtools__take_screenshot` - Take screenshot
-- `mcp__chrome-devtools__click` - Click elements
-- `mcp__chrome-devtools__fill` - Fill form inputs
-- `mcp__chrome-devtools__list_console_messages` - Check console errors
-- `mcp__chrome-devtools__list_network_requests` - Monitor API calls
-- `mcp__chrome-devtools__performance_start_trace` - Start performance recording
-- `mcp__chrome-devtools__performance_stop_trace` - Stop and analyze performance
+`@/*` maps to `./src/*` (tsconfig paths).
 
-### Performance Testing Workflow
+## Infrastructure
 
-**Step 1: Start Dev Server in Background**
-If chrome-devtools MCP is alreay running, kill it first.
-using chrome-devtools MCP, start dev server in background
+### Ports
 
-**Step 2: Run Browser Tests with chrome-devtools MCP**
+| Service | Port |
+|---------|------|
+| Backend dev | 28080 |
+| Backend prod (gunicorn) | 8080 |
+| Frontend | 3000 |
+| Test PostgreSQL | 5433 |
 
-```typescript
-// Example test flow:
-1. Navigate to page: mcp__chrome-devtools__navigate_page({ url: "http://localhost:3000/ko" })
-2. Take snapshot: mcp__chrome-devtools__take_snapshot({ verbose: false })
-3. Check console: mcp__chrome-devtools__list_console_messages()
-4. Start performance trace: mcp__chrome-devtools__performance_start_trace({ reload: true, autoStop: true })
-5. Analyze results: Review LCP, FCP, TTI, CLS metrics
-6. Take screenshot: mcp__chrome-devtools__take_screenshot({ fullPage: true })
-```
+### Docker
 
-**Step 3: Measure Core Web Vitals**
+- `backend/Dockerfile` — Python 3.12.3-slim + uv, entrypoint at `scripts/entrypoint.sh`
+- `backend/docker-compose.yaml` — Only starts test-db (`pgvector/pgvector:pg16` on port 5433), no backend service
+- `backend/scripts/entrypoint.sh` — Production: gunicorn (8 workers), Dev: uvicorn with reload
 
-- **LCP (Largest Contentful Paint):** Target <2000ms
-- **FCP (First Contentful Paint):** Target <1000ms
-- **CLS (Cumulative Layout Shift):** Target <0.1
-- **TTI (Time to Interactive):** Target <2500ms
-- **TBT (Total Blocking Time):** Target <300ms
+### Pre-commit Hooks
 
-### Test Documentation
+Backend only: black, isort (profile=black), ruff (--fix), trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, debug-statements.
 
-**Test Plans and Reports:**
+### Python (`backend/`)
 
-- `frontend/tests/browser/` - Browser test documentation
-- `frontend/tests/browser/test-reports/` - Test execution reports
-- `frontend/docs/performance-baseline.md` - Performance baseline metrics
-- `frontend/docs/PERFORMANCE-DASHBOARD.md` - Performance dashboard
-
-**Test Coverage:**
-
-- Home page tests (8 tests)
-- Artists page tests (10 tests)
-- SearchBar component tests (20 tests)
-- Total: 38 automated test cases
-
-### Lighthouse CI (Automated Performance Regression Testing)
-
-**Configuration:** `.lighthouserc.js` in frontend directory
-**GitHub Actions:** `.github/workflows/lighthouse-ci.yaml`
-
-**Manual Lighthouse CI Run:**
-
-```bash
-cd frontend
-pnpm build
-npx lhci autorun
-```
-
-### Example: Testing Home Page
-
-```bash
-# 1. Ensure backend is running
-cd backend
-uvicorn backend.main:app --reload --port 28080
-
-# 2. Start frontend dev server
-cd frontend
-pnpm dev
-
-# 3. Use chrome-devtools MCP tools to:
-# - Navigate to http://localhost:3000/ko
-# - Take snapshot to verify structure
-# - Check console messages (expect 0 errors)
-# - Start performance trace with reload
-# - Review Core Web Vitals
-# - Take screenshots for documentation
-# - Compare with baseline (frontend/docs/performance-baseline.md)
-```
-
-## AI Agent System (Curai)
-
-**Framework:** Pydantic AI with streaming SSE responses
-
-**Architecture:**
-
-- Thread-based conversations with message history persistence
-- Agentic search using pre-defined DB tools
+- `requires-python = "==3.12.3"` (exact version)
+- mypy: strict mode with `pydantic.mypy` + `sqlalchemy.ext.mypy.plugin`
+- pytest: `asyncio_mode = auto`, coverage minimum 80%, excludes routers/auth/curai/admin from coverage
